@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,11 +8,19 @@ const Account = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
   const [usageCount, setUsageCount] = useState(0);
+  const [analysisHistory, setAnalysisHistory] = useState<Array<{
+    fileName: string;
+    score: number;
+    date: string;
+    suggestions: string[];
+    keywords: Array<{keyword: string, found: boolean}>;
+  }>>([]);
   const freeChecksLimit = 3;
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('userAuth');
     const savedUsage = localStorage.getItem('usageCount');
+    const savedHistory = localStorage.getItem('analysisHistory');
     
     if (savedAuth) {
       const authData = JSON.parse(savedAuth);
@@ -24,7 +31,24 @@ const Account = () => {
     if (savedUsage) {
       setUsageCount(parseInt(savedUsage));
     }
+    
+    if (savedHistory) {
+      setAnalysisHistory(JSON.parse(savedHistory));
+    }
   }, []);
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return 'Today';
+    if (diffDays === 2) return 'Yesterday';
+    if (diffDays <= 7) return `${diffDays - 1} days ago`;
+    if (diffDays <= 14) return '1 week ago';
+    return `${Math.floor(diffDays / 7)} weeks ago`;
+  };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
@@ -123,29 +147,22 @@ const Account = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/50">
-                        <div>
-                          <p className="text-white">Resume_2024.pdf</p>
-                          <p className="text-sm text-gray-400">Score: 85/100</p>
+                      {analysisHistory.length > 0 ? (
+                        analysisHistory.slice(0, 5).map((analysis, index) => (
+                          <div key={index} className="flex justify-between items-center p-3 rounded-lg bg-gray-800/50">
+                            <div>
+                              <p className="text-white">{analysis.fileName}</p>
+                              <p className="text-sm text-gray-400">Score: {analysis.score}/100</p>
+                            </div>
+                            <p className="text-sm text-gray-400">{formatDate(analysis.date)}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8">
+                          <p className="text-gray-400">No recent activity</p>
+                          <p className="text-sm text-gray-500 mt-2">Upload and analyze your first resume to see activity here</p>
                         </div>
-                        <p className="text-sm text-gray-400">2 days ago</p>
-                      </div>
-                      
-                      <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/50">
-                        <div>
-                          <p className="text-white">Marketing_Resume.docx</p>
-                          <p className="text-sm text-gray-400">Score: 72/100</p>
-                        </div>
-                        <p className="text-sm text-gray-400">1 week ago</p>
-                      </div>
-                      
-                      <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/50">
-                        <div>
-                          <p className="text-white">Software_Engineer_CV.pdf</p>
-                          <p className="text-sm text-gray-400">Score: 91/100</p>
-                        </div>
-                        <p className="text-sm text-gray-400">2 weeks ago</p>
-                      </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

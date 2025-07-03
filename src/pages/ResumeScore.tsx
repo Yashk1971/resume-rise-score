@@ -16,16 +16,27 @@ const ResumeScore = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
   const [resumeScores, setResumeScores] = useState<Record<string, number>>({});
+  const [analysisHistory, setAnalysisHistory] = useState<Array<{
+    fileName: string;
+    score: number;
+    date: string;
+    suggestions: string[];
+    keywords: Array<{keyword: string, found: boolean}>;
+  }>>([]);
   const [usageCount, setUsageCount] = useState(0);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [currentAnalysis, setCurrentAnalysis] = useState<{
+    suggestions: string[];
+    keywords: Array<{keyword: string, found: boolean}>;
+  } | null>(null);
 
   const FREE_TRIAL_LIMIT = 3;
 
-  // Load user data from localStorage on component mount
   useEffect(() => {
     const savedAuth = localStorage.getItem('userAuth');
     const savedUsage = localStorage.getItem('usageCount');
     const savedScores = localStorage.getItem('resumeScores');
+    const savedHistory = localStorage.getItem('analysisHistory');
     
     if (savedAuth) {
       const authData = JSON.parse(savedAuth);
@@ -40,6 +51,10 @@ const ResumeScore = () => {
     if (savedScores) {
       setResumeScores(JSON.parse(savedScores));
     }
+    
+    if (savedHistory) {
+      setAnalysisHistory(JSON.parse(savedHistory));
+    }
   }, []);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,6 +68,45 @@ const ResumeScore = () => {
         toast.error("Please upload a PDF or DOCX file");
       }
     }
+  };
+
+  const generateAnalysisData = (fileName: string, score: number) => {
+    // Generate dynamic keywords based on filename and score
+    const allKeywords = [
+      'JavaScript', 'React', 'Python', 'Project Management', 'Leadership', 
+      'Data Analysis', 'Communication', 'Problem Solving', 'Team Collaboration',
+      'Agile', 'Git', 'SQL', 'Node.js', 'HTML/CSS', 'Machine Learning'
+    ];
+    
+    // Generate keywords based on filename hints and score
+    const keywords = allKeywords.slice(0, 5).map((keyword, index) => ({
+      keyword,
+      found: (fileName.toLowerCase().includes(keyword.toLowerCase().split(' ')[0].toLowerCase()) || 
+              (score + index * 13) % 7 > 2)
+    }));
+    
+    // Generate suggestions based on score and missing keywords
+    const suggestions = [];
+    const missingKeywords = keywords.filter(k => !k.found).map(k => k.keyword);
+    
+    if (score < 70) {
+      suggestions.push('Improve overall resume structure and formatting');
+      if (missingKeywords.length > 0) {
+        suggestions.push(`Add missing keywords: ${missingKeywords.slice(0, 2).join(', ')}`);
+      }
+      suggestions.push('Use more action verbs in experience descriptions');
+    } else if (score < 85) {
+      if (missingKeywords.length > 0) {
+        suggestions.push(`Include relevant keywords: ${missingKeywords[0]}`);
+      }
+      suggestions.push('Quantify achievements with specific numbers and metrics');
+      suggestions.push('Ensure consistent formatting throughout the document');
+    } else {
+      suggestions.push('Consider adding more industry-specific certifications');
+      suggestions.push('Optimize section ordering for better readability');
+    }
+    
+    return { keywords, suggestions };
   };
 
   const generateConsistentScore = (fileName: string, fileSize: number) => {
@@ -113,14 +167,42 @@ const ResumeScore = () => {
     
     const fileKey = `${file.name}-${file.size}`;
     let finalScore;
+    let analysisData;
     
     if (resumeScores[fileKey]) {
       finalScore = resumeScores[fileKey];
+      // Find existing analysis data
+      const existingAnalysis = analysisHistory.find(item => 
+        item.fileName === file.name && item.score === finalScore
+      );
+      if (existingAnalysis) {
+        analysisData = {
+          keywords: existingAnalysis.keywords,
+          suggestions: existingAnalysis.suggestions
+        };
+      } else {
+        analysisData = generateAnalysisData(file.name, finalScore);
+      }
     } else {
       finalScore = generateConsistentScore(file.name, file.size);
+      analysisData = generateAnalysisData(file.name, finalScore);
+      
       const updatedScores = { ...resumeScores, [fileKey]: finalScore };
       setResumeScores(updatedScores);
       localStorage.setItem('resumeScores', JSON.stringify(updatedScores));
+      
+      // Save analysis to history
+      const newAnalysis = {
+        fileName: file.name,
+        score: finalScore,
+        date: new Date().toISOString(),
+        suggestions: analysisData.suggestions,
+        keywords: analysisData.keywords
+      };
+      
+      const updatedHistory = [newAnalysis, ...analysisHistory.slice(0, 9)]; // Keep last 10
+      setAnalysisHistory(updatedHistory);
+      localStorage.setItem('analysisHistory', JSON.stringify(updatedHistory));
       
       // Increment usage count only for new analyses
       const newUsageCount = usageCount + 1;
@@ -128,19 +210,12 @@ const ResumeScore = () => {
       localStorage.setItem('usageCount', newUsageCount.toString());
     }
     
+    setCurrentAnalysis(analysisData);
     setScore(finalScore);
     setShowResults(true);
     setIsAnalyzing(false);
     toast.success("Analysis complete!");
   };
-
-  const mockKeywords = [
-    { keyword: "JavaScript", found: true },
-    { keyword: "React", found: true },
-    { keyword: "Project Management", found: false },
-    { keyword: "Leadership", found: true },
-    { keyword: "Data Analysis", found: false },
-  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 relative overflow-hidden">
@@ -245,7 +320,7 @@ const ResumeScore = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {mockKeywords.map((item, index) => (
+                      {currentAnalysis?.keywords.map((item, index) => (
                         <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-gray-800/30">
                           <span className="text-gray-300">{item.keyword}</span>
                           {item.found ? (
@@ -265,20 +340,14 @@ const ResumeScore = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3 text-gray-300">
-                      <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                        <AlertCircle className="h-5 w-5 text-yellow-400 mt-0.5" />
-                        <div>
-                          <p className="font-medium">Add missing keywords</p>
-                          <p className="text-sm text-gray-400">Include "Project Management" and "Data Analysis" in your experience section</p>
+                      {currentAnalysis?.suggestions.map((suggestion, index) => (
+                        <div key={index} className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                          <AlertCircle className="h-5 w-5 text-yellow-400 mt-0.5" />
+                          <div>
+                            <p className="font-medium">{suggestion}</p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                        <CheckCircle className="h-5 w-5 text-blue-400 mt-0.5" />
-                        <div>
-                          <p className="font-medium">Use standard section headers</p>
-                          <p className="text-sm text-gray-400">Replace creative headers with "Experience", "Education", "Skills"</p>
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
@@ -288,6 +357,7 @@ const ResumeScore = () => {
                     setShowResults(false);
                     setFile(null);
                     setScore(null);
+                    setCurrentAnalysis(null);
                   }}
                   variant="outline"
                   className="w-full border-gray-700 hover:bg-gray-800"
