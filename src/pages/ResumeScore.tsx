@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, CheckCircle, AlertCircle, Sparkles } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, Sparkles, User } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { AuthDialog } from "@/components/AuthDialog";
 import { AnalysisAnimation } from "@/components/AnalysisAnimation";
@@ -14,6 +14,8 @@ const ResumeScore = () => {
   const [score, setScore] = useState<number | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [resumeScores, setResumeScores] = useState<Record<string, number>>({});
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0];
@@ -26,6 +28,17 @@ const ResumeScore = () => {
         toast.error("Please upload a PDF or DOCX file");
       }
     }
+  };
+
+  const generateConsistentScore = (fileName: string, fileSize: number) => {
+    // Create a simple hash from filename and size for consistency
+    const hash = fileName.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0) + fileSize;
+    
+    // Generate score between 65-95 based on hash
+    return Math.abs(hash % 30) + 65;
   };
 
   const handleAnalyzeClick = () => {
@@ -42,9 +55,10 @@ const ResumeScore = () => {
     startAnalysis();
   };
 
-  const handleAuthSuccess = () => {
+  const handleAuthSuccess = (name: string) => {
     setIsAuthenticated(true);
-    toast.success("Welcome! Starting analysis...");
+    setUserName(name);
+    toast.success(`Welcome ${name}! Starting analysis...`);
     setTimeout(startAnalysis, 500);
   };
 
@@ -53,8 +67,19 @@ const ResumeScore = () => {
   };
 
   const handleAnalysisComplete = () => {
-    const mockScore = Math.floor(Math.random() * 30) + 70;
-    setScore(mockScore);
+    if (!file) return;
+    
+    const fileKey = `${file.name}-${file.size}`;
+    let finalScore;
+    
+    if (resumeScores[fileKey]) {
+      finalScore = resumeScores[fileKey];
+    } else {
+      finalScore = generateConsistentScore(file.name, file.size);
+      setResumeScores(prev => ({ ...prev, [fileKey]: finalScore }));
+    }
+    
+    setScore(finalScore);
     setShowResults(true);
     setIsAnalyzing(false);
     toast.success("Analysis complete!");
@@ -77,6 +102,18 @@ const ResumeScore = () => {
       
       <div className="relative z-10">
         <Navbar />
+        
+        {/* User info display */}
+        {isAuthenticated && (
+          <div className="container mx-auto px-4 pt-4">
+            <div className="flex justify-end">
+              <div className="flex items-center gap-2 bg-gray-900/50 backdrop-blur-xl border border-gray-800 rounded-lg px-4 py-2">
+                <User className="h-4 w-4 text-purple-400" />
+                <span className="text-sm text-gray-300">Welcome, {userName}</span>
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="container mx-auto px-4 pt-20 pb-20">
           <div className="max-w-2xl mx-auto">
