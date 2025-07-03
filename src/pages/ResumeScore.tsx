@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload, FileText, CheckCircle, AlertCircle, Sparkles, User } from "lucide-react";
@@ -16,6 +16,31 @@ const ResumeScore = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
   const [resumeScores, setResumeScores] = useState<Record<string, number>>({});
+  const [usageCount, setUsageCount] = useState(0);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  const FREE_TRIAL_LIMIT = 3;
+
+  // Load user data from localStorage on component mount
+  useEffect(() => {
+    const savedAuth = localStorage.getItem('userAuth');
+    const savedUsage = localStorage.getItem('usageCount');
+    const savedScores = localStorage.getItem('resumeScores');
+    
+    if (savedAuth) {
+      const authData = JSON.parse(savedAuth);
+      setIsAuthenticated(true);
+      setUserName(authData.userName);
+    }
+    
+    if (savedUsage) {
+      setUsageCount(parseInt(savedUsage));
+    }
+    
+    if (savedScores) {
+      setResumeScores(JSON.parse(savedScores));
+    }
+  }, []);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0];
@@ -52,14 +77,31 @@ const ResumeScore = () => {
       return;
     }
     
+    // Check if user has exceeded free trials
+    if (usageCount >= FREE_TRIAL_LIMIT) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    
     startAnalysis();
   };
 
   const handleAuthSuccess = (name: string) => {
     setIsAuthenticated(true);
     setUserName(name);
+    
+    // Save to localStorage
+    localStorage.setItem('userAuth', JSON.stringify({ userName: name }));
+    
     toast.success(`Welcome ${name}! Starting analysis...`);
     setTimeout(startAnalysis, 500);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUserName("");
+    localStorage.removeItem('userAuth');
+    toast.success("Logged out successfully");
   };
 
   const startAnalysis = () => {
@@ -76,7 +118,14 @@ const ResumeScore = () => {
       finalScore = resumeScores[fileKey];
     } else {
       finalScore = generateConsistentScore(file.name, file.size);
-      setResumeScores(prev => ({ ...prev, [fileKey]: finalScore }));
+      const updatedScores = { ...resumeScores, [fileKey]: finalScore };
+      setResumeScores(updatedScores);
+      localStorage.setItem('resumeScores', JSON.stringify(updatedScores));
+      
+      // Increment usage count only for new analyses
+      const newUsageCount = usageCount + 1;
+      setUsageCount(newUsageCount);
+      localStorage.setItem('usageCount', newUsageCount.toString());
     }
     
     setScore(finalScore);
@@ -101,19 +150,11 @@ const ResumeScore = () => {
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
       
       <div className="relative z-10">
-        <Navbar />
-        
-        {/* User info display */}
-        {isAuthenticated && (
-          <div className="container mx-auto px-4 pt-4">
-            <div className="flex justify-end">
-              <div className="flex items-center gap-2 bg-gray-900/50 backdrop-blur-xl border border-gray-800 rounded-lg px-4 py-2">
-                <User className="h-4 w-4 text-purple-400" />
-                <span className="text-sm text-gray-300">Welcome, {userName}</span>
-              </div>
-            </div>
-          </div>
-        )}
+        <Navbar 
+          isAuthenticated={isAuthenticated} 
+          userName={userName} 
+          onLogout={handleLogout}
+        />
         
         <div className="container mx-auto px-4 pt-20 pb-20">
           <div className="max-w-2xl mx-auto">
@@ -144,6 +185,12 @@ const ResumeScore = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {isAuthenticated && (
+                    <div className="text-center text-sm text-gray-400 mb-4">
+                      Free analyses remaining: {FREE_TRIAL_LIMIT - usageCount}/{FREE_TRIAL_LIMIT}
+                    </div>
+                  )}
+                  
                   <div className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center hover:border-purple-500 transition-all duration-300 hover:bg-purple-500/5">
                     <input
                       type="file"
@@ -258,6 +305,48 @@ const ResumeScore = () => {
         onOpenChange={setShowAuthDialog}
         onAuthSuccess={handleAuthSuccess}
       />
+
+      {/* Upgrade Modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <Card className="bg-gray-900/95 backdrop-blur-xl border border-purple-500/30 max-w-md w-full">
+            <CardHeader>
+              <CardTitle className="text-center text-xl font-semibold text-white">
+                Upgrade to Premium
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-white mb-2">
+                  $5<span className="text-lg text-gray-400">/month</span>
+                </div>
+                <p className="text-gray-300 mb-4">You've used all your free analyses!</p>
+                
+                <div className="space-y-2 text-gray-300 text-left">
+                  <p>✓ Unlimited resume checks</p>
+                  <p>✓ Detailed improvement suggestions</p>
+                  <p>✓ Missing keywords analysis</p>
+                  <p>✓ Advanced formatting tips</p>
+                  <p>✓ Priority support</p>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <Button 
+                  onClick={() => setShowUpgradeModal(false)}
+                  variant="outline"
+                  className="flex-1 border-gray-700 hover:bg-gray-800"
+                >
+                  Maybe Later
+                </Button>
+                <Button className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700">
+                  Upgrade Now
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
