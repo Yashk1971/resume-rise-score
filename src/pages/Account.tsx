@@ -148,9 +148,9 @@ const Account = () => {
                       </div>
                     </div>
                   </CardContent>
-                </div>
-              )}
-            </div>
+                </Card>
+              </div>
+            )}
           </div>
         </div>
       </div>
