@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import { AuthDialog } from "@/components/AuthDialog";
 import { AnalysisAnimation } from "@/components/AnalysisAnimation";
 import { toast } from "sonner";
+import { calculateATSScore } from "@/utils/atsScoring";
 
 const ResumeScore = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -28,6 +29,13 @@ const ResumeScore = () => {
   const [currentAnalysis, setCurrentAnalysis] = useState<{
     suggestions: string[];
     keywords: Array<{keyword: string, found: boolean}>;
+  } | null>(null);
+  const [atsAnalysis, setAtsAnalysis] = useState<{
+    score: number;
+    breakdown: any;
+    missingKeywords: string[];
+    suggestions: string[];
+    criticalIssues: string[];
   } | null>(null);
 
   const FREE_TRIAL_LIMIT = 3;
@@ -71,21 +79,20 @@ const ResumeScore = () => {
   };
 
   const generateAnalysisData = (fileName: string, score: number) => {
-    // Generate dynamic keywords based on filename and score
+    // This is now replaced by the ATS scoring system
+    // Keep for backward compatibility with existing history
     const allKeywords = [
       'JavaScript', 'React', 'Python', 'Project Management', 'Leadership', 
       'Data Analysis', 'Communication', 'Problem Solving', 'Team Collaboration',
       'Agile', 'Git', 'SQL', 'Node.js', 'HTML/CSS', 'Machine Learning'
     ];
     
-    // Generate keywords based on filename hints and score
     const keywords = allKeywords.slice(0, 5).map((keyword, index) => ({
       keyword,
       found: (fileName.toLowerCase().includes(keyword.toLowerCase().split(' ')[0].toLowerCase()) || 
               (score + index * 13) % 7 > 2)
     }));
     
-    // Generate suggestions based on score and missing keywords
     const suggestions = [];
     const missingKeywords = keywords.filter(k => !k.found).map(k => k.keyword);
     
@@ -168,10 +175,10 @@ const ResumeScore = () => {
     const fileKey = `${file.name}-${file.size}`;
     let finalScore;
     let analysisData;
+    let atsResult;
     
     if (resumeScores[fileKey]) {
       finalScore = resumeScores[fileKey];
-      // Find existing analysis data
       const existingAnalysis = analysisHistory.find(item => 
         item.fileName === file.name && item.score === finalScore
       );
@@ -180,12 +187,27 @@ const ResumeScore = () => {
           keywords: existingAnalysis.keywords,
           suggestions: existingAnalysis.suggestions
         };
+        // Generate ATS analysis for existing resume
+        atsResult = calculateATSScore(file.name, file.size, file.type);
+        atsResult.score = finalScore; // Use stored score for consistency
       } else {
-        analysisData = generateAnalysisData(file.name, finalScore);
+        // New ATS analysis
+        atsResult = calculateATSScore(file.name, file.size, file.type);
+        finalScore = atsResult.score;
+        analysisData = {
+          keywords: atsResult.missingKeywords.map(keyword => ({ keyword, found: false })),
+          suggestions: atsResult.suggestions
+        };
       }
     } else {
-      finalScore = generateConsistentScore(file.name, file.size);
-      analysisData = generateAnalysisData(file.name, finalScore);
+      // Brand new analysis using ATS scoring
+      atsResult = calculateATSScore(file.name, file.size, file.type);
+      finalScore = atsResult.score;
+      
+      analysisData = {
+        keywords: atsResult.missingKeywords.map(keyword => ({ keyword, found: false })),
+        suggestions: atsResult.suggestions
+      };
       
       const updatedScores = { ...resumeScores, [fileKey]: finalScore };
       setResumeScores(updatedScores);
@@ -196,20 +218,20 @@ const ResumeScore = () => {
         fileName: file.name,
         score: finalScore,
         date: new Date().toISOString(),
-        suggestions: analysisData.suggestions,
+        suggestions: atsResult.suggestions,
         keywords: analysisData.keywords
       };
       
-      const updatedHistory = [newAnalysis, ...analysisHistory.slice(0, 9)]; // Keep last 10
+      const updatedHistory = [newAnalysis, ...analysisHistory.slice(0, 9)];
       setAnalysisHistory(updatedHistory);
       localStorage.setItem('analysisHistory', JSON.stringify(updatedHistory));
       
-      // Increment usage count only for new analyses
       const newUsageCount = usageCount + 1;
       setUsageCount(newUsageCount);
       localStorage.setItem('usageCount', newUsageCount.toString());
     }
     
+    setAtsAnalysis(atsResult);
     setCurrentAnalysis(analysisData);
     setScore(finalScore);
     setShowResults(true);
@@ -252,6 +274,7 @@ const ResumeScore = () => {
                 </CardContent>
               </Card>
             ) : !showResults ? (
+              // ... keep existing code (upload card)
               <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                 <CardHeader>
                   <CardTitle className="text-center flex items-center justify-center gap-2">
@@ -296,6 +319,7 @@ const ResumeScore = () => {
               </Card>
             ) : (
               <div className="space-y-6">
+                {/* Main ATS Score Card */}
                 <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                   <CardHeader>
                     <CardTitle className="text-center">Your ATS Score</CardTitle>
@@ -306,41 +330,99 @@ const ResumeScore = () => {
                         {score}/100
                       </div>
                       <p className="text-gray-300 mb-6">
-                        {score && score >= 80 ? 'Excellent! Your resume is ATS-friendly.' : 
-                         score && score >= 60 ? 'Good, but there\'s room for improvement.' : 
-                         'Needs work to pass ATS systems.'}
+                        {score && score >= 80 ? 'Excellent! Your resume is highly ATS-compatible.' : 
+                         score && score >= 60 ? 'Good score, but there\'s room for improvement.' : 
+                         'Needs significant work to pass ATS systems.'}
                       </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
-                  <CardHeader>
-                    <CardTitle>Keyword Analysis</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {currentAnalysis?.keywords.map((item, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-gray-800/30">
-                          <span className="text-gray-300">{item.keyword}</span>
-                          {item.found ? (
-                            <CheckCircle className="h-5 w-5 text-green-400" />
-                          ) : (
-                            <AlertCircle className="h-5 w-5 text-red-400" />
-                          )}
+                      
+                      {/* Critical Issues Alert */}
+                      {atsAnalysis?.criticalIssues && atsAnalysis.criticalIssues.length > 0 && (
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+                          <h4 className="text-red-400 font-semibold mb-2">⚠️ Critical Issues</h4>
+                          {atsAnalysis.criticalIssues.map((issue, index) => (
+                            <p key={index} className="text-red-300 text-sm">{issue}</p>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   </CardContent>
                 </Card>
 
+                {/* Score Breakdown Card */}
+                {atsAnalysis?.breakdown && (
+                  <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
+                    <CardHeader>
+                      <CardTitle>Score Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/30">
+                          <span className="text-gray-300">Keyword Match (40 pts)</span>
+                          <span className={`font-semibold ${atsAnalysis.breakdown.keywordMatch >= 30 ? 'text-green-400' : atsAnalysis.breakdown.keywordMatch >= 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {atsAnalysis.breakdown.keywordMatch}/40
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/30">
+                          <span className="text-gray-300">Formatting & Readability (20 pts)</span>
+                          <span className={`font-semibold ${atsAnalysis.breakdown.formatting >= 16 ? 'text-green-400' : atsAnalysis.breakdown.formatting >= 12 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {atsAnalysis.breakdown.formatting}/20
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/30">
+                          <span className="text-gray-300">Experience Relevance (20 pts)</span>
+                          <span className={`font-semibold ${atsAnalysis.breakdown.experienceRelevance >= 16 ? 'text-green-400' : atsAnalysis.breakdown.experienceRelevance >= 12 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {atsAnalysis.breakdown.experienceRelevance}/20
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/30">
+                          <span className="text-gray-300">Skills Section (10 pts)</span>
+                          <span className={`font-semibold ${atsAnalysis.breakdown.skillsSection >= 8 ? 'text-green-400' : atsAnalysis.breakdown.skillsSection >= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {atsAnalysis.breakdown.skillsSection}/10
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 rounded-lg bg-gray-800/30">
+                          <span className="text-gray-300">File Type & Metadata (10 pts)</span>
+                          <span className={`font-semibold ${atsAnalysis.breakdown.fileType >= 8 ? 'text-green-400' : atsAnalysis.breakdown.fileType >= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {atsAnalysis.breakdown.fileType}/10
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Missing Keywords Card */}
+                {atsAnalysis?.missingKeywords && atsAnalysis.missingKeywords.length > 0 && (
+                  <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
+                    <CardHeader>
+                      <CardTitle>Missing Keywords</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-3">
+                        {atsAnalysis.missingKeywords.map((keyword, index) => (
+                          <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                            <AlertCircle className="h-4 w-4 text-red-400" />
+                            <span className="text-gray-300">{keyword}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                        <p className="text-blue-300 text-sm">
+                          💡 Consider adding these keywords naturally throughout your experience and skills sections
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Improvement Suggestions Card */}
                 <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                   <CardHeader>
                     <CardTitle>Improvement Suggestions</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3 text-gray-300">
-                      {currentAnalysis?.suggestions.map((suggestion, index) => (
+                      {atsAnalysis?.suggestions.map((suggestion, index) => (
                         <div key={index} className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
                           <AlertCircle className="h-5 w-5 text-yellow-400 mt-0.5" />
                           <div>
@@ -348,6 +430,19 @@ const ResumeScore = () => {
                           </div>
                         </div>
                       ))}
+                    </div>
+                    
+                    {/* Pro upgrade prompt */}
+                    <div className="mt-6 p-4 bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-purple-300 font-semibold">Get Detailed AI Insights</h4>
+                          <p className="text-gray-400 text-sm">Unlock personalized improvement recommendations</p>
+                        </div>
+                        <Button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700">
+                          Upgrade to Pro
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -358,6 +453,7 @@ const ResumeScore = () => {
                     setFile(null);
                     setScore(null);
                     setCurrentAnalysis(null);
+                    setAtsAnalysis(null);
                   }}
                   variant="outline"
                   className="w-full border-gray-700 hover:bg-gray-800"
@@ -370,13 +466,13 @@ const ResumeScore = () => {
         </div>
       </div>
 
+      {/* ... keep existing code (AuthDialog and Upgrade Modal) */}
       <AuthDialog 
         open={showAuthDialog}
         onOpenChange={setShowAuthDialog}
         onAuthSuccess={handleAuthSuccess}
       />
 
-      {/* Upgrade Modal */}
       {showUpgradeModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <Card className="bg-gray-900/95 backdrop-blur-xl border border-purple-500/30 max-w-md w-full">
