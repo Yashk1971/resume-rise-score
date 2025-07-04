@@ -9,9 +9,10 @@ import { JobRoleSelector } from "@/components/JobRoleSelector";
 import { toast } from "sonner";
 import { calculateATSScore } from "@/utils/atsScoring";
 import { jobRoles } from "@/utils/jobRoles";
+import { DragDropUpload } from "@/components/DragDropUpload";
 
 const ResumeScore = () => {
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>();
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [score, setScore] = useState<number | null>(null);
@@ -66,17 +67,15 @@ const ResumeScore = () => {
     }
   }, []);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = event.target.files?.[0];
-    if (uploadedFile) {
-      const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-      if (allowedTypes.includes(uploadedFile.type)) {
-        setFile(uploadedFile);
-        toast.success("Resume uploaded successfully!");
-      } else {
-        toast.error("Please upload a PDF or DOCX file");
-      }
-    }
+  const handleFileUpload = (file: File) => {
+    setFile(file);
+  };
+
+  const handleRemoveFile = () => {
+    setFile(null);
+    setScore(null);
+    setShowResults(false);
+    setAtsAnalysis(null);
   };
 
   const handleAnalyzeClick = () => {
@@ -219,39 +218,21 @@ const ResumeScore = () => {
                   onJobRoleChange={setSelectedJobRole}
                 />
 
-                {/* Upload Card */}
+                {/* Enhanced Upload Component */}
+                <DragDropUpload
+                  onFileSelect={handleFileUpload}
+                  selectedFile={file}
+                  onRemoveFile={handleRemoveFile}
+                />
+
+                {/* Analysis Button */}
                 <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
-                  <CardHeader>
-                    <CardTitle className="text-center flex items-center justify-center gap-2">
-                      <Upload className="h-5 w-5 text-purple-400" />
-                      Upload Your Resume
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
+                  <CardContent className="p-6">
                     {isAuthenticated && (
                       <div className="text-center text-sm text-gray-400 mb-4">
                         Free analyses remaining: {FREE_TRIAL_LIMIT - usageCount}/{FREE_TRIAL_LIMIT}
                       </div>
                     )}
-                    
-                    <div className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center hover:border-purple-500 transition-all duration-300 hover:bg-purple-500/5">
-                      <input
-                        type="file"
-                        accept=".pdf,.docx"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                        id="resume-upload"
-                      />
-                      <label htmlFor="resume-upload" className="cursor-pointer">
-                        <FileText className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                        <p className="text-lg mb-2 font-medium">
-                          {file ? file.name : "Click to upload your resume"}
-                        </p>
-                        <p className="text-sm text-gray-400">
-                          Supports PDF and DOCX files (Max 10MB)
-                        </p>
-                      </label>
-                    </div>
                     
                     <Button 
                       onClick={handleAnalyzeClick}
