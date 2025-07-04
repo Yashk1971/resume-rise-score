@@ -5,8 +5,10 @@ import { Upload, FileText, CheckCircle, AlertCircle, Sparkles, User } from "luci
 import Navbar from "@/components/Navbar";
 import { AuthDialog } from "@/components/AuthDialog";
 import { AnalysisAnimation } from "@/components/AnalysisAnimation";
+import { JobRoleSelector } from "@/components/JobRoleSelector";
 import { toast } from "sonner";
 import { calculateATSScore } from "@/utils/atsScoring";
+import { jobRoles } from "@/utils/jobRoles";
 
 const ResumeScore = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -23,19 +25,18 @@ const ResumeScore = () => {
     date: string;
     suggestions: string[];
     keywords: Array<{keyword: string, found: boolean}>;
+    jobRole?: string;
   }>>([]);
   const [usageCount, setUsageCount] = useState(0);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [currentAnalysis, setCurrentAnalysis] = useState<{
-    suggestions: string[];
-    keywords: Array<{keyword: string, found: boolean}>;
-  } | null>(null);
+  const [selectedJobRole, setSelectedJobRole] = useState(jobRoles[0].id);
   const [atsAnalysis, setAtsAnalysis] = useState<{
     score: number;
     breakdown: any;
     missingKeywords: string[];
     suggestions: string[];
     criticalIssues: string[];
+    jobRole: any;
   } | null>(null);
 
   const FREE_TRIAL_LIMIT = 3;
@@ -76,55 +77,6 @@ const ResumeScore = () => {
         toast.error("Please upload a PDF or DOCX file");
       }
     }
-  };
-
-  const generateAnalysisData = (fileName: string, score: number) => {
-    // This is now replaced by the ATS scoring system
-    // Keep for backward compatibility with existing history
-    const allKeywords = [
-      'JavaScript', 'React', 'Python', 'Project Management', 'Leadership', 
-      'Data Analysis', 'Communication', 'Problem Solving', 'Team Collaboration',
-      'Agile', 'Git', 'SQL', 'Node.js', 'HTML/CSS', 'Machine Learning'
-    ];
-    
-    const keywords = allKeywords.slice(0, 5).map((keyword, index) => ({
-      keyword,
-      found: (fileName.toLowerCase().includes(keyword.toLowerCase().split(' ')[0].toLowerCase()) || 
-              (score + index * 13) % 7 > 2)
-    }));
-    
-    const suggestions = [];
-    const missingKeywords = keywords.filter(k => !k.found).map(k => k.keyword);
-    
-    if (score < 70) {
-      suggestions.push('Improve overall resume structure and formatting');
-      if (missingKeywords.length > 0) {
-        suggestions.push(`Add missing keywords: ${missingKeywords.slice(0, 2).join(', ')}`);
-      }
-      suggestions.push('Use more action verbs in experience descriptions');
-    } else if (score < 85) {
-      if (missingKeywords.length > 0) {
-        suggestions.push(`Include relevant keywords: ${missingKeywords[0]}`);
-      }
-      suggestions.push('Quantify achievements with specific numbers and metrics');
-      suggestions.push('Ensure consistent formatting throughout the document');
-    } else {
-      suggestions.push('Consider adding more industry-specific certifications');
-      suggestions.push('Optimize section ordering for better readability');
-    }
-    
-    return { keywords, suggestions };
-  };
-
-  const generateConsistentScore = (fileName: string, fileSize: number) => {
-    // Create a simple hash from filename and size for consistency
-    const hash = fileName.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0);
-      return a & a;
-    }, 0) + fileSize;
-    
-    // Generate score between 65-95 based on hash
-    return Math.abs(hash % 30) + 65;
   };
 
   const handleAnalyzeClick = () => {
@@ -172,42 +124,28 @@ const ResumeScore = () => {
   const handleAnalysisComplete = () => {
     if (!file) return;
     
-    const fileKey = `${file.name}-${file.size}`;
+    const fileKey = `${file.name}-${file.size}-${selectedJobRole}`;
     let finalScore;
-    let analysisData;
     let atsResult;
     
     if (resumeScores[fileKey]) {
       finalScore = resumeScores[fileKey];
       const existingAnalysis = analysisHistory.find(item => 
-        item.fileName === file.name && item.score === finalScore
+        item.fileName === file.name && item.score === finalScore && item.jobRole === selectedJobRole
       );
       if (existingAnalysis) {
-        analysisData = {
-          keywords: existingAnalysis.keywords,
-          suggestions: existingAnalysis.suggestions
-        };
-        // Generate ATS analysis for existing resume
-        atsResult = calculateATSScore(file.name, file.size, file.type);
+        // Generate ATS analysis for existing resume with stored score
+        atsResult = calculateATSScore(file.name, file.size, file.type, selectedJobRole);
         atsResult.score = finalScore; // Use stored score for consistency
       } else {
         // New ATS analysis
-        atsResult = calculateATSScore(file.name, file.size, file.type);
+        atsResult = calculateATSScore(file.name, file.size, file.type, selectedJobRole);
         finalScore = atsResult.score;
-        analysisData = {
-          keywords: atsResult.missingKeywords.map(keyword => ({ keyword, found: false })),
-          suggestions: atsResult.suggestions
-        };
       }
     } else {
       // Brand new analysis using ATS scoring
-      atsResult = calculateATSScore(file.name, file.size, file.type);
+      atsResult = calculateATSScore(file.name, file.size, file.type, selectedJobRole);
       finalScore = atsResult.score;
-      
-      analysisData = {
-        keywords: atsResult.missingKeywords.map(keyword => ({ keyword, found: false })),
-        suggestions: atsResult.suggestions
-      };
       
       const updatedScores = { ...resumeScores, [fileKey]: finalScore };
       setResumeScores(updatedScores);
@@ -219,7 +157,8 @@ const ResumeScore = () => {
         score: finalScore,
         date: new Date().toISOString(),
         suggestions: atsResult.suggestions,
-        keywords: analysisData.keywords
+        keywords: atsResult.missingKeywords.map(keyword => ({ keyword, found: false })),
+        jobRole: selectedJobRole
       };
       
       const updatedHistory = [newAnalysis, ...analysisHistory.slice(0, 9)];
@@ -232,7 +171,6 @@ const ResumeScore = () => {
     }
     
     setAtsAnalysis(atsResult);
-    setCurrentAnalysis(analysisData);
     setScore(finalScore);
     setShowResults(true);
     setIsAnalyzing(false);
@@ -263,7 +201,7 @@ const ResumeScore = () => {
                 Resume ATS Analyzer
               </h1>
               <p className="text-gray-300 text-lg">
-                Get your ATS compatibility score and detailed insights
+                Get your ATS compatibility score tailored to specific job roles
               </p>
             </div>
             
@@ -274,51 +212,75 @@ const ResumeScore = () => {
                 </CardContent>
               </Card>
             ) : !showResults ? (
-              // ... keep existing code (upload card)
-              <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
-                <CardHeader>
-                  <CardTitle className="text-center flex items-center justify-center gap-2">
-                    <Upload className="h-5 w-5 text-purple-400" />
-                    Upload Your Resume
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {isAuthenticated && (
-                    <div className="text-center text-sm text-gray-400 mb-4">
-                      Free analyses remaining: {FREE_TRIAL_LIMIT - usageCount}/{FREE_TRIAL_LIMIT}
+              <div className="space-y-6">
+                {/* Job Role Selector */}
+                <JobRoleSelector 
+                  selectedJobRole={selectedJobRole}
+                  onJobRoleChange={setSelectedJobRole}
+                />
+
+                {/* Upload Card */}
+                <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
+                  <CardHeader>
+                    <CardTitle className="text-center flex items-center justify-center gap-2">
+                      <Upload className="h-5 w-5 text-purple-400" />
+                      Upload Your Resume
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {isAuthenticated && (
+                      <div className="text-center text-sm text-gray-400 mb-4">
+                        Free analyses remaining: {FREE_TRIAL_LIMIT - usageCount}/{FREE_TRIAL_LIMIT}
+                      </div>
+                    )}
+                    
+                    <div className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center hover:border-purple-500 transition-all duration-300 hover:bg-purple-500/5">
+                      <input
+                        type="file"
+                        accept=".pdf,.docx"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        id="resume-upload"
+                      />
+                      <label htmlFor="resume-upload" className="cursor-pointer">
+                        <FileText className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                        <p className="text-lg mb-2 font-medium">
+                          {file ? file.name : "Click to upload your resume"}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          Supports PDF and DOCX files (Max 10MB)
+                        </p>
+                      </label>
                     </div>
-                  )}
-                  
-                  <div className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center hover:border-purple-500 transition-all duration-300 hover:bg-purple-500/5">
-                    <input
-                      type="file"
-                      accept=".pdf,.docx"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      id="resume-upload"
-                    />
-                    <label htmlFor="resume-upload" className="cursor-pointer">
-                      <FileText className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                      <p className="text-lg mb-2 font-medium">
-                        {file ? file.name : "Click to upload your resume"}
-                      </p>
-                      <p className="text-sm text-gray-400">
-                        Supports PDF and DOCX files (Max 10MB)
-                      </p>
-                    </label>
-                  </div>
-                  
-                  <Button 
-                    onClick={handleAnalyzeClick}
-                    disabled={!file}
-                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg py-6 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
-                  >
-                    Get My ATS Score
-                  </Button>
-                </CardContent>
-              </Card>
+                    
+                    <Button 
+                      onClick={handleAnalyzeClick}
+                      disabled={!file}
+                      className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg py-6 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+                    >
+                      Get My ATS Score for {jobRoles.find(role => role.id === selectedJobRole)?.title}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
             ) : (
               <div className="space-y-6">
+                {/* Job Role Context Card */}
+                {atsAnalysis?.jobRole && (
+                  <Card className="bg-gray-900/50 backdrop-blur-xl border border-purple-500/30 shadow-2xl">
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <Sparkles className="h-5 w-5 text-purple-400" />
+                          <span className="text-purple-300 font-semibold">Analyzed for</span>
+                        </div>
+                        <h3 className="text-xl font-bold text-white">{atsAnalysis.jobRole.title}</h3>
+                        <p className="text-gray-400 text-sm">{atsAnalysis.jobRole.category} Role</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Main ATS Score Card */}
                 <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                   <CardHeader>
@@ -330,9 +292,9 @@ const ResumeScore = () => {
                         {score}/100
                       </div>
                       <p className="text-gray-300 mb-6">
-                        {score && score >= 80 ? 'Excellent! Your resume is highly ATS-compatible.' : 
+                        {score && score >= 80 ? 'Excellent! Your resume is highly ATS-compatible for this role.' : 
                          score && score >= 60 ? 'Good score, but there\'s room for improvement.' : 
-                         'Needs significant work to pass ATS systems.'}
+                         'Needs significant work to pass ATS systems for this role.'}
                       </p>
                       
                       {/* Critical Issues Alert */}
@@ -395,7 +357,7 @@ const ResumeScore = () => {
                 {atsAnalysis?.missingKeywords && atsAnalysis.missingKeywords.length > 0 && (
                   <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                     <CardHeader>
-                      <CardTitle>Missing Keywords</CardTitle>
+                      <CardTitle>Missing Keywords for {atsAnalysis.jobRole.title}</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="grid grid-cols-2 gap-3">
@@ -408,14 +370,13 @@ const ResumeScore = () => {
                       </div>
                       <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                         <p className="text-blue-300 text-sm">
-                          💡 Consider adding these keywords naturally throughout your experience and skills sections
+                          💡 Consider adding these {atsAnalysis.jobRole.category.toLowerCase()} keywords naturally throughout your experience and skills sections
                         </p>
                       </div>
                     </CardContent>
                   </Card>
                 )}
 
-                {/* Improvement Suggestions Card */}
                 <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                   <CardHeader>
                     <CardTitle>Improvement Suggestions</CardTitle>
@@ -452,7 +413,6 @@ const ResumeScore = () => {
                     setShowResults(false);
                     setFile(null);
                     setScore(null);
-                    setCurrentAnalysis(null);
                     setAtsAnalysis(null);
                   }}
                   variant="outline"
@@ -466,7 +426,7 @@ const ResumeScore = () => {
         </div>
       </div>
 
-      {/* ... keep existing code (AuthDialog and Upgrade Modal) */}
+      {/* AuthDialog and Upgrade Modal */}
       <AuthDialog 
         open={showAuthDialog}
         onOpenChange={setShowAuthDialog}
@@ -490,6 +450,7 @@ const ResumeScore = () => {
                 
                 <div className="space-y-2 text-gray-300 text-left">
                   <p>✓ Unlimited resume checks</p>
+                  <p>✓ All job role targeting</p>
                   <p>✓ Detailed improvement suggestions</p>
                   <p>✓ Missing keywords analysis</p>
                   <p>✓ Advanced formatting tips</p>

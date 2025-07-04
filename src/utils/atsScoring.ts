@@ -1,3 +1,4 @@
+import { JobRole, getJobRoleById, jobRoles } from './jobRoles';
 
 interface ATSScoreBreakdown {
   keywordMatch: number;
@@ -14,37 +15,34 @@ interface ATSAnalysisResult {
   missingKeywords: string[];
   suggestions: string[];
   criticalIssues: string[];
+  jobRole: JobRole;
 }
 
-// Mock job requirements - in real implementation, this would come from job posting
-const mockJobRequirements = {
-  title: "Software Engineer",
-  keywords: [
-    "JavaScript", "React", "Python", "Node.js", "SQL", "Git", "AWS", "Docker",
-    "API", "REST", "Agile", "Scrum", "Testing", "CI/CD", "MongoDB", "Express",
-    "TypeScript", "HTML", "CSS", "Redux", "GraphQL", "Microservices"
-  ],
-  skills: [
-    "Problem Solving", "Team Collaboration", "Communication", "Leadership",
-    "Project Management", "Code Review", "Debugging", "System Design"
-  ]
-};
+export const calculateATSScore = (
+  fileName: string, 
+  fileSize: number, 
+  fileType: string, 
+  selectedJobRoleId?: string
+): ATSAnalysisResult => {
+  // Use selected job role or default to software engineer
+  const jobRole = selectedJobRoleId ? 
+    getJobRoleById(selectedJobRoleId) || jobRoles[0] : 
+    jobRoles[0];
 
-export const calculateATSScore = (fileName: string, fileSize: number, fileType: string): ATSAnalysisResult => {
   // Generate consistent mock content based on filename
-  const resumeContent = generateMockResumeContent(fileName);
+  const resumeContent = generateMockResumeContent(fileName, jobRole);
   
   // 1. Keyword Match (40 points)
-  const keywordScore = calculateKeywordMatch(resumeContent, fileName);
+  const keywordScore = calculateKeywordMatch(resumeContent, fileName, jobRole);
   
   // 2. Formatting & Readability (20 points)
   const formattingScore = calculateFormattingScore(fileName, fileType);
   
   // 3. Experience Relevance (20 points)
-  const experienceScore = calculateExperienceRelevance(resumeContent, fileName);
+  const experienceScore = calculateExperienceRelevance(resumeContent, fileName, jobRole);
   
   // 4. Skills Section (10 points)
-  const skillsScore = calculateSkillsSection(resumeContent, fileName);
+  const skillsScore = calculateSkillsSection(resumeContent, fileName, jobRole);
   
   // 5. File Type & Metadata (10 points)
   const fileTypeScore = calculateFileTypeScore(fileName, fileType, fileSize);
@@ -60,30 +58,31 @@ export const calculateATSScore = (fileName: string, fileSize: number, fileType: 
     total: totalScore
   };
   
-  const missingKeywords = findMissingKeywords(resumeContent, fileName);
-  const suggestions = generateSuggestions(breakdown, missingKeywords);
-  const criticalIssues = identifyCriticalIssues(breakdown, fileName, fileType);
+  const missingKeywords = findMissingKeywords(resumeContent, fileName, jobRole);
+  const suggestions = generateSuggestions(breakdown, missingKeywords, jobRole);
+  const criticalIssues = identifyCriticalIssues(breakdown, fileName, fileType, jobRole);
   
   return {
     score: totalScore,
     breakdown,
     missingKeywords,
     suggestions,
-    criticalIssues
+    criticalIssues,
+    jobRole
   };
 };
 
-const generateMockResumeContent = (fileName: string): string[] => {
+const generateMockResumeContent = (fileName: string, jobRole: JobRole): string[] => {
   // Generate mock content based on filename to simulate resume parsing
   const nameHash = fileName.split('').reduce((a, b) => {
     a = ((a << 5) - a) + b.charCodeAt(0);
     return a & a;
   }, 0);
   
-  const availableSkills = [...mockJobRequirements.keywords, ...mockJobRequirements.skills];
+  const availableSkills = [...jobRole.keywords, ...jobRole.skills];
   const resumeSkills: string[] = [];
   
-  // Simulate skills based on filename
+  // Simulate skills based on filename and job role
   availableSkills.forEach((skill, index) => {
     if ((Math.abs(nameHash + index) % 5) > 1) {
       resumeSkills.push(skill.toLowerCase());
@@ -93,8 +92,8 @@ const generateMockResumeContent = (fileName: string): string[] => {
   return resumeSkills;
 };
 
-const calculateKeywordMatch = (resumeContent: string[], fileName: string): number => {
-  const requiredKeywords = mockJobRequirements.keywords.map(k => k.toLowerCase());
+const calculateKeywordMatch = (resumeContent: string[], fileName: string, jobRole: JobRole): number => {
+  const requiredKeywords = jobRole.keywords.map(k => k.toLowerCase());
   const foundKeywords = resumeContent.filter(skill => 
     requiredKeywords.some(keyword => keyword.toLowerCase().includes(skill) || skill.includes(keyword.toLowerCase()))
   );
@@ -104,10 +103,10 @@ const calculateKeywordMatch = (resumeContent: string[], fileName: string): numbe
   // Award 40 points based on keyword match percentage
   let score = Math.round(matchPercentage * 40);
   
-  // Bonus for high-value keywords
-  const highValueKeywords = ['react', 'python', 'javascript', 'aws', 'sql'];
+  // Bonus for high-value keywords (first 5 keywords are considered high-value)
+  const highValueKeywords = jobRole.keywords.slice(0, 5).map(k => k.toLowerCase());
   const highValueMatches = resumeContent.filter(skill => 
-    highValueKeywords.some(keyword => skill.includes(keyword))
+    highValueKeywords.some(keyword => skill.includes(keyword) || keyword.includes(skill))
   ).length;
   
   score += Math.min(highValueMatches * 2, 8); // Up to 8 bonus points
@@ -146,11 +145,11 @@ const calculateFormattingScore = (fileName: string, fileType: string): number =>
   return Math.max(score, 0);
 };
 
-const calculateExperienceRelevance = (resumeContent: string[], fileName: string): number => {
+const calculateExperienceRelevance = (resumeContent: string[], fileName: string, jobRole: JobRole): number => {
   let score = 0;
   
-  // Check for job-relevant experience keywords
-  const experienceKeywords = ['developer', 'engineer', 'programming', 'software', 'web', 'full-stack', 'backend', 'frontend'];
+  // Check for job-relevant experience keywords based on role
+  const experienceKeywords = getExperienceKeywords(jobRole);
   const hasRelevantExperience = resumeContent.some(skill => 
     experienceKeywords.some(keyword => skill.includes(keyword))
   );
@@ -168,19 +167,19 @@ const calculateExperienceRelevance = (resumeContent: string[], fileName: string)
   }
   
   // Simulate job title match
-  if (fileName.toLowerCase().includes('software') || fileName.toLowerCase().includes('dev')) {
+  if (fileName.toLowerCase().includes(jobRole.title.toLowerCase().split(' ')[0].toLowerCase())) {
     score += 3;
   }
   
   return Math.min(score, 20);
 };
 
-const calculateSkillsSection = (resumeContent: string[], fileName: string): number => {
+const calculateSkillsSection = (resumeContent: string[], fileName: string, jobRole: JobRole): number => {
   let score = 0;
   
-  // Award points for having technical skills
+  // Award points for having technical skills relevant to the job role
   const technicalSkills = resumeContent.filter(skill => 
-    mockJobRequirements.keywords.some(keyword => 
+    jobRole.keywords.some(keyword => 
       keyword.toLowerCase().includes(skill) || skill.includes(keyword.toLowerCase())
     )
   );
@@ -221,8 +220,8 @@ const calculateFileTypeScore = (fileName: string, fileType: string, fileSize: nu
   return Math.max(score, 0);
 };
 
-const findMissingKeywords = (resumeContent: string[], fileName: string): string[] => {
-  const requiredKeywords = mockJobRequirements.keywords;
+const findMissingKeywords = (resumeContent: string[], fileName: string, jobRole: JobRole): string[] => {
+  const requiredKeywords = jobRole.keywords;
   const missing: string[] = [];
   
   requiredKeywords.forEach(keyword => {
@@ -238,12 +237,12 @@ const findMissingKeywords = (resumeContent: string[], fileName: string): string[
   return missing.slice(0, 8);
 };
 
-const generateSuggestions = (breakdown: ATSScoreBreakdown, missingKeywords: string[]): string[] => {
+const generateSuggestions = (breakdown: ATSScoreBreakdown, missingKeywords: string[], jobRole: JobRole): string[] => {
   const suggestions: string[] = [];
   
   if (breakdown.keywordMatch < 20) {
-    suggestions.push(`Add these missing keywords: ${missingKeywords.slice(0, 3).join(', ')}`);
-    suggestions.push("Include more industry-specific technical terms and tools");
+    suggestions.push(`Add these missing ${jobRole.title.toLowerCase()} keywords: ${missingKeywords.slice(0, 3).join(', ')}`);
+    suggestions.push(`Include more ${jobRole.category.toLowerCase()}-specific technical terms and tools`);
   }
   
   if (breakdown.formatting < 15) {
@@ -252,13 +251,13 @@ const generateSuggestions = (breakdown: ATSScoreBreakdown, missingKeywords: stri
   }
   
   if (breakdown.experienceRelevance < 15) {
-    suggestions.push("Highlight relevant job titles and responsibilities more prominently");
+    suggestions.push(`Highlight ${jobRole.title.toLowerCase()} responsibilities more prominently`);
     suggestions.push("Use reverse chronological order for your work experience");
   }
   
   if (breakdown.skillsSection < 7) {
-    suggestions.push("Create a dedicated 'Technical Skills' section");
-    suggestions.push("List programming languages, frameworks, and tools you've used");
+    suggestions.push(`Create a dedicated 'Technical Skills' section for ${jobRole.category.toLowerCase()} roles`);
+    suggestions.push(`List ${jobRole.category.toLowerCase()} tools, technologies, and frameworks you've used`);
   }
   
   if (breakdown.fileType < 8) {
@@ -273,11 +272,11 @@ const generateSuggestions = (breakdown: ATSScoreBreakdown, missingKeywords: stri
   return suggestions.slice(0, 6);
 };
 
-const identifyCriticalIssues = (breakdown: ATSScoreBreakdown, fileName: string, fileType: string): string[] => {
+const identifyCriticalIssues = (breakdown: ATSScoreBreakdown, fileName: string, fileType: string, jobRole: JobRole): string[] => {
   const issues: string[] = [];
   
   if (breakdown.keywordMatch < 15) {
-    issues.push("Low keyword match - this resume may not pass initial ATS screening");
+    issues.push(`Low ${jobRole.title.toLowerCase()} keyword match - this resume may not pass initial ATS screening`);
   }
   
   if (breakdown.formatting < 10) {
@@ -289,4 +288,19 @@ const identifyCriticalIssues = (breakdown: ATSScoreBreakdown, fileName: string, 
   }
   
   return issues;
+};
+
+const getExperienceKeywords = (jobRole: JobRole): string[] => {
+  const roleSpecificKeywords: Record<string, string[]> = {
+    'software-engineer': ['developer', 'engineer', 'programming', 'software', 'web', 'full-stack', 'backend', 'frontend'],
+    'data-scientist': ['data', 'analyst', 'scientist', 'research', 'machine learning', 'statistics', 'modeling'],
+    'digital-marketing': ['marketing', 'digital', 'campaign', 'growth', 'seo', 'social media', 'content'],
+    'product-manager': ['product', 'manager', 'strategy', 'roadmap', 'stakeholder', 'requirements'],
+    'sales-representative': ['sales', 'account', 'client', 'revenue', 'quota', 'business development'],
+    'ux-designer': ['design', 'user experience', 'interface', 'usability', 'wireframe', 'prototype'],
+    'financial-analyst': ['financial', 'analyst', 'modeling', 'budgeting', 'forecasting', 'investment'],
+    'hr-manager': ['human resources', 'talent', 'recruiting', 'employee', 'hiring', 'training']
+  };
+  
+  return roleSpecificKeywords[jobRole.id] || ['manager', 'coordinator', 'specialist', 'analyst'];
 };
