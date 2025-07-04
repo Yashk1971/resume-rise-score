@@ -6,6 +6,9 @@ import Navbar from "@/components/Navbar";
 import { AuthDialog } from "@/components/AuthDialog";
 import { AnalysisAnimation } from "@/components/AnalysisAnimation";
 import { JobRoleSelector } from "@/components/JobRoleSelector";
+import { ResumeHeatmap } from "@/components/ResumeHeatmap";
+import { BenchmarkComparison } from "@/components/BenchmarkComparison";
+import { ExportReport } from "@/components/ExportReport";
 import { toast } from "sonner";
 import { calculateATSScore } from "@/utils/atsScoring";
 import { jobRoles } from "@/utils/jobRoles";
@@ -176,6 +179,48 @@ const ResumeScore = () => {
     toast.success("Analysis complete!");
   };
 
+  const generateSectionScores = () => {
+    if (!atsAnalysis) return [];
+    
+    return [
+      {
+        name: "Keywords & Skills",
+        score: atsAnalysis.breakdown.keywordMatch,
+        maxScore: 40,
+        issues: atsAnalysis.missingKeywords.length > 5 ? ["Too many missing keywords"] : [],
+        suggestions: [`Add ${atsAnalysis.missingKeywords.slice(0, 3).join(', ')}`]
+      },
+      {
+        name: "Formatting & Structure",
+        score: atsAnalysis.breakdown.formatting,
+        maxScore: 20,
+        issues: atsAnalysis.breakdown.formatting < 15 ? ["Formatting issues detected"] : [],
+        suggestions: ["Use clean, single-column layout"]
+      },
+      {
+        name: "Experience Relevance",
+        score: atsAnalysis.breakdown.experienceRelevance,
+        maxScore: 20,
+        issues: atsAnalysis.breakdown.experienceRelevance < 15 ? ["Experience not well aligned"] : [],
+        suggestions: ["Highlight relevant achievements"]
+      },
+      {
+        name: "Skills Section",
+        score: atsAnalysis.breakdown.skillsSection,
+        maxScore: 10,
+        issues: atsAnalysis.breakdown.skillsSection < 7 ? ["Skills section needs improvement"] : [],
+        suggestions: ["Add technical skills section"]
+      },
+      {
+        name: "File & Metadata",
+        score: atsAnalysis.breakdown.fileType,
+        maxScore: 10,
+        issues: atsAnalysis.breakdown.fileType < 8 ? ["File format issues"] : [],
+        suggestions: ["Use professional filename"]
+      }
+    ];
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 relative overflow-hidden">
       {/* Enhanced background effects */}
@@ -212,20 +257,17 @@ const ResumeScore = () => {
               </Card>
             ) : !showResults ? (
               <div className="space-y-6">
-                {/* Job Role Selector */}
                 <JobRoleSelector 
                   selectedJobRole={selectedJobRole}
                   onJobRoleChange={setSelectedJobRole}
                 />
 
-                {/* Enhanced Upload Component */}
                 <DragDropUpload
                   onFileSelect={handleFileUpload}
                   selectedFile={file}
                   onRemoveFile={handleRemoveFile}
                 />
 
-                {/* Analysis Button */}
                 <Card className="bg-gray-900/50 backdrop-blur-xl border border-gray-800 shadow-2xl">
                   <CardContent className="p-6">
                     {isAuthenticated && (
@@ -290,6 +332,23 @@ const ResumeScore = () => {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* NEW: Resume Heatmap */}
+                <ResumeHeatmap 
+                  sections={generateSectionScores()}
+                  overallScore={score || 0}
+                />
+
+                {/* NEW: Benchmark Comparison */}
+                {atsAnalysis && (
+                  <BenchmarkComparison
+                    userScore={score || 0}
+                    averageScore={68}
+                    industryScore={72}
+                    jobRole={atsAnalysis.jobRole.title}
+                    percentile={Math.min(95, Math.max(5, Math.round((score || 0) * 0.9 + Math.random() * 10)))}
+                  />
+                )}
 
                 {/* Score Breakdown Card */}
                 {atsAnalysis?.breakdown && (
@@ -388,6 +447,20 @@ const ResumeScore = () => {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* NEW: Export Functionality */}
+                {atsAnalysis && file && (
+                  <ExportReport
+                    analysisData={{
+                      fileName: file.name,
+                      score: score || 0,
+                      jobRole: atsAnalysis.jobRole.title,
+                      date: new Date().toISOString(),
+                      suggestions: atsAnalysis.suggestions,
+                      missingKeywords: atsAnalysis.missingKeywords
+                    }}
+                  />
+                )}
 
                 <Button 
                   onClick={() => {
